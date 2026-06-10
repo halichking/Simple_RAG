@@ -1,0 +1,50 @@
+paths:
+  docs_dir: docs
+  data_dir: data
+  vector_store_dir: data/vector_store
+  chat_history_dir: data/chat_history
+  session_upload_dir: data/session_uploads
+  md5_path: data/md5.txt
+
+models:
+  embedding_model: text-embedding-v2
+  aliyun_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  aliyun_chat_model: deepseek-v4-flash
+
+vector_store:
+  knowledge_collection_name: Learning_Knowledge
+  history_collection_name: Chat_History
+
+mongodb_store:
+  mongodb_url: mongodb://localhost:27017/
+  db_name: Learning_Assistant_History
+
+splitter:
+  chunk_size: 1000
+  chunk_overlap: 100
+  max_split_char_number: 1000
+  separators:
+    - "\n\n"
+    - "\n"
+    - "。"
+    - "！"
+    - "？"
+    - "."
+    - "!"
+    - "?"
+    - "；"
+    - ";"
+    - "，"
+    - ","
+    - " "
+    - ""
+
+retriever:
+  top_k: 4
+  similarity_threshold: 3
+
+session:
+  default_session_id: local_user_001
+
+report:
+  duplicate_strategy: md5

@@ -5,3 +5,7 @@ __pycache__/
 config_data.yml
 prompt.txt
 data/
+docs/
+.idea/
+tests/
+*.ipynb

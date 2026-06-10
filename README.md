@@ -1,58 +1,217 @@
-# RAG
+# Simple RAG Assistant
 
-一个本地知识库 RAG 项目：使用 LangGraph 编排问答流程，Chroma 保存本地向量库，Ollama 调用公司内网模型生成回答。
+一个本地运行的轻量 RAG 助手示例，支持资料问答、临时表格分析、流式输出和分层记忆管理。项目默认面向个人或小团队本地使用，不包含登录、权限、多租户等生产系统能力。
 
-## 主要模块
+## 功能特性
 
-- `src/config_data.py`：读取本地配置和环境变量
-- `src/knowledge_base.py`：将 `docs` 文档写入向量库
-- `src/vector_stores.py`：封装 Chroma 检索器
-- `src/file_history_store.py`：保存本地会话历史
-- `src/rag.py`：LangGraph RAG 问答流程
+- 本地网页聊天界面：标准库 `http.server` 实现，无需额外前端构建流程。
+- 资料知识库问答：支持上传或同步 PDF/TXT，并写入 Chroma 向量库。
+- 临时表格分析：聊天框左侧 `+` 上传 Excel/CSV，文件只绑定当前消息分析，不会自动混入长期知识库。
+- 流式回答：`/chat-stream` 使用 NDJSON 分块返回，前端显示“思考中”等待态。
+- 模型意图路由：通过结构化输出判断问题走资料问答、表格分析或普通聊天。
+- 分层记忆：
+  - 最近几轮消息作为短期窗口；
+  - 旧消息滚动压缩进 `summary`；
+  - 重要历史问答写入 Chroma 远期记忆；
+  - 用户稳定信息抽取到 `profile`。
+- 清理能力：
+  - 清空当前会话历史、摘要、画像、远期记忆和临时文件；
+  - 清空知识库向量和入库 MD5 记录。
 
-## 本地配置
+## 项目结构
 
-敏感文件不会提交到仓库。请在项目根目录自行创建：
-
-- `.env`：保存 `DASHSCOPE_API_KEY`
-- `config_data.yml`：保存路径、模型名、切分参数等本地配置
-
-`config_data.yml` 需要包含这些配置段：
-
-```yaml
-paths:
-  md5_path: data/md5.txt
-  docs_dir: docs
-  data_dir: data
-  vector_store_dir: data/vector_store
-  chat_history_dir: data/chat_history
-
-models:
-  embedding_model: text-embedding-v4
-  ollama_base_url: http://你的Ollama地址:11434
-  ollama_chat_model: deepseek-r1:14b
-
-vector_store:
-  collection_name: company_knowledge
-
-splitter:
-  chunk_size: 1000
-  chunk_overlap: 150
-  max_split_char_number: 1000
-  separators: ["\n\n", "\n", "。", "！", "？", ".", "!", "?", "；", ";", "，", ",", " ", ""]
-
-retriever:
-  top_k: 4
-  similarity_threshold: 4
-
-session:
-  default_session_id: local_user_001
+```text
+.
+├── config_data.example.yml   # 配置模板，复制为 config_data.yml 后使用
+├── src/
+│   ├── web_app.py            # 本地网页服务和 HTTP API
+│   ├── rag.py                # RAG 核心服务、路由、流式问答
+│   ├── memory_manager.py     # 分层记忆管理
+│   ├── knowledge_base.py     # PDF/TXT 入库
+│   ├── vector_retriever.py   # Chroma 检索、知识库/历史向量管理
+│   ├── report_service.py     # Excel/CSV 读取和 Markdown 分析摘要
+│   ├── session_file_service.py # 当前会话临时分析文件管理
+│   ├── mongo_checkpointer.py # LangGraph MongoDB Checkpointer
+│   ├── SchemaCollection.py   # Pydantic 结构化输出模型
+│   ├── RagState.py           # LangGraph 状态定义
+│   └── ConfigData.py         # 配置读取
+└── README.md
 ```
 
-## 使用
+## 环境要求
+
+- Python 3.11 或更新版本
+- MongoDB，本地或 Docker 均可
+- 可访问的兼容 OpenAI Chat Completions 的模型服务
+- DashScope Embedding API Key，用于向量化资料和历史记忆
+
+当前代码使用的主要 Python 包包括：
+
+- `langchain`
+- `langchain-openai`
+- `langgraph`
+- `langgraph-checkpoint-mongodb`
+- `langchain-chroma`
+- `langchain-community`
+- `pymongo`
+- `python-dotenv`
+- `pyyaml`
+- `pydantic`
+- `xlrd`，仅在读取 `.xls` 时需要
+
+## 快速开始
+
+1. 创建并激活虚拟环境。
 
 ```powershell
-.\.venv\Scripts\python.exe src\config_data.py
-.\.venv\Scripts\python.exe src\knowledge_base.py
-.\.venv\Scripts\python.exe src\rag.py
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
+
+2. 安装依赖。
+
+如果你已经有自己的依赖管理文件，可以按自己的方式安装。否则可先按代码导入的包安装：
+
+```powershell
+pip install langchain langchain-openai langgraph langgraph-checkpoint-mongodb langchain-chroma langchain-community pymongo python-dotenv pyyaml pydantic xlrd
+```
+
+3. 准备配置文件。
+
+```powershell
+Copy-Item config_data.example.yml config_data.yml
+```
+
+按需修改 `config_data.yml` 中的模型、MongoDB、向量库路径等配置。
+
+4. 准备环境变量。
+
+在项目根目录创建 `.env`：
+
+```env
+ALIYUN_API_KEY=你的模型服务或 DashScope Key
+DASHSCOPE_API_KEY=你的 DashScope Embedding Key
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=
+```
+
+如果聊天模型和 Embedding 共用一个 Key，只设置 `ALIYUN_API_KEY` 也可以。
+
+5. 启动 MongoDB。
+
+Docker 示例：
+
+```powershell
+docker run -d --name local-rag-mongo -p 27017:27017 mongo:7
+```
+
+6. 启动网页服务。
+
+```powershell
+python src\web_app.py
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:8000/
+```
+
+## 使用方式
+
+### 资料问答
+
+点击页面右侧“上传资料到知识库”，上传 PDF/TXT。上传成功后即可提问文档流程、功能说明、字段含义等内容。
+
+也可以把资料放入本地 `docs/` 目录，然后点击“同步 docs 知识库”。注意：`docs/` 默认被 `.gitignore` 忽略，避免误把本地资料提交到公开仓库。
+
+### 表格分析
+
+点击输入框左侧 `+`，选择 `.xlsx`、`.xls` 或 `.csv`，然后在同一条消息里输入问题并发送。
+
+临时表格文件只用于当前会话分析，不会进入长期知识库。系统会先用程序读取、统计、生成 Markdown 摘要，再让模型基于统计结果做自然语言解读。
+
+### 记忆机制
+
+当前会话状态由 MongoDB Checkpointer 持久化。流式回答前会调用 `MemoryManager` 做分层记忆管理：
+
+```text
+短期窗口：保留最近几轮原文消息
+滚动摘要：旧消息压缩进 summary
+远期记忆：被剪枝的一问一答写入 Chroma
+用户画像：从明确表达中抽取 profile
+```
+
+这样可以避免历史消息无限进入模型上下文，同时保留后续回答仍可能需要的关键信息。
+
+### 清理数据
+
+页面提供两个危险操作：
+
+- 清空当前会话历史：清除当前 `session_id` 的消息、摘要、画像、远期记忆和临时文件。
+- 清空知识库：清空知识库向量和 MD5 入库记录，不删除本地 `docs/` 原始文件。
+
+## HTTP API
+
+### `GET /health`
+
+返回服务状态、MongoDB 连接、向量库状态、知识库向量数量、历史向量数量和当前会话临时文件数量。
+
+### `POST /chat-stream`
+
+流式聊天接口，使用 NDJSON 返回。
+
+请求示例：
+
+```json
+{
+  "question": "这份文档的主要流程是什么？",
+  "session_id": "local_web_user",
+  "analysis_files": []
+}
+```
+
+### `POST /upload-analysis-file`
+
+上传当前会话临时分析文件，支持 `.xlsx`、`.xls`、`.csv`。
+
+### `POST /upload-knowledge-file`
+
+上传长期知识库资料，支持 `.pdf`、`.txt`。
+
+### `POST /ingest-docs`
+
+批量同步 `docs/` 目录中的 PDF/TXT 到知识库。
+
+### `POST /clear-history`
+
+清空当前会话历史和临时上传文件。
+
+### `POST /clear-knowledge-base`
+
+清空知识库向量和 MD5 入库记录。
+
+## 安全与隐私
+
+- `.env`、`config_data.yml`、`data/`、`docs/` 默认不提交。
+- 不要把真实内部资料、业务报表、用户数据或 API Key 提交到公开仓库。
+- Chroma 向量库和 MongoDB 数据都属于运行期数据，默认放在本地。
+- 表格分析报告只展示统计摘要，不应逐条输出敏感明细。
+
+## 开发检查
+
+```powershell
+python -m compileall src
+```
+
+如果你保留了本地测试目录，也可以运行：
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+本仓库默认忽略 `tests/`，避免把本地验证样例或临时测试数据推送到公开仓库。
+
+## 许可
+
+请在发布前按你的实际需要补充 License。
